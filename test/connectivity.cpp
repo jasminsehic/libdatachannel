@@ -28,6 +28,79 @@ TestResult test_connectivity() { return test_connectivity(false); }
 
 TestResult test_connectivity_fail_on_wrong_fingerprint() { return test_connectivity(true); }
 
+
+TestResult test_relay_only_without_turn() {
+	// Both peers are local, so direct ICE works without STUN/TURN. Relay-only
+	// must not fall back to a host candidate when no TURN server is configured.
+	Configuration relayConfig;
+	relayConfig.iceTransportPolicy = TransportPolicy::Relay;
+
+	std::atomic<bool> relayCandidateEmitted{false};
+	std::atomic<bool> directCandidateEmitted{false};
+	std::atomic<bool> connected{false};
+
+	PeerConnection relay(relayConfig);
+	PeerConnection direct(Configuration{});
+
+	relay.onLocalDescription([&direct](Description sdp) {
+		direct.setRemoteDescription(std::move(sdp));
+	});
+	direct.onLocalDescription([&relay](Description sdp) {
+		relay.setRemoteDescription(std::move(sdp));
+	});
+	relay.onLocalCandidate([&direct, &relayCandidateEmitted](Candidate candidate) {
+		relayCandidateEmitted = true;
+		direct.addRemoteCandidate(std::move(candidate));
+	});
+	direct.onLocalCandidate([&relay, &directCandidateEmitted](Candidate candidate) {
+		directCandidateEmitted = true;
+		relay.addRemoteCandidate(std::move(candidate));
+	});
+
+	auto onIceState = [&connected](PeerConnection::IceState state) {
+		if (state == PeerConnection::IceState::Connected ||
+		    state == PeerConnection::IceState::Completed)
+			connected = true;
+	};
+	relay.onIceStateChange(onIceState);
+	direct.onIceStateChange(onIceState);
+
+	auto dc = direct.createDataChannel("relay-only-without-turn");
+	dc->onOpen([&connected] { connected = true; });
+
+	// Let both peers exchange signaling and ICE candidates. The ordinary
+	// peer must gather a candidate for this test to exercise direct ICE.
+	for (int i = 0; i < 50 && !connected && !relayCandidateEmitted; ++i)
+		this_thread::sleep_for(100ms);
+
+	bool const leakedCandidate = relayCandidateEmitted;
+	bool const directCandidate = directCandidateEmitted;
+	bool const directConnected = connected ||
+	    relay.iceState() == PeerConnection::IceState::Connected ||
+	    relay.iceState() == PeerConnection::IceState::Completed ||
+	    direct.iceState() == PeerConnection::IceState::Connected ||
+	    direct.iceState() == PeerConnection::IceState::Completed;
+
+	Candidate local, remote;
+	bool const selectedPair = relay.getSelectedCandidatePair(&local, &remote);
+	auto const description = relay.localDescription();
+	bool const advertisedCandidates = description && !description->candidates().empty();
+
+	relay.resetCallbacks();
+	direct.resetCallbacks();
+	relay.close();
+	direct.close();
+
+	if (!directCandidate)
+		return TestResult(false, "Ordinary peer did not gather an ICE candidate");
+	if (leakedCandidate || advertisedCandidates)
+		return TestResult(false, "Relay-only peer advertised an ICE candidate without TURN");
+	if (directConnected || selectedPair)
+		return TestResult(false, "ICE connected directly despite relay-only policy");
+
+	return TestResult(true);
+}
+
 TestResult test_connectivity(bool signal_wrong_fingerprint) {
 	InitLogger(LogLevel::Debug);
 

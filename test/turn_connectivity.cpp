@@ -11,6 +11,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <thread>
@@ -26,16 +27,16 @@ TestResult test_turn_connectivity() {
 	Configuration config1;
 	config1.iceTransportPolicy = TransportPolicy::Relay; // force relay
 
-	// TURN server example (use your own server in production)
-	config1.iceServers.emplace_back(
-	    "turn:openrelayproject:openrelayproject@openrelay.metered.ca:80");
+	// The test runner enables this test only when a local TURN fixture is started.
+	char const* turnUrl = std::getenv("RTC_TEST_TURN_URL");
+	if (!turnUrl)
+		return TestResult(false, "RTC_TEST_TURN_URL is not set");
+	config1.iceServers.emplace_back(turnUrl);
 
 	PeerConnection pc1(config1);
 
 	Configuration config2;
 
-	// STUN server example (use your own server in production)
-	config2.iceServers.emplace_back("stun:openrelay.metered.ca:80");
 
 	PeerConnection pc2(config2);
 
@@ -63,10 +64,7 @@ TestResult test_turn_connectivity() {
 	});
 
 	pc2.onLocalCandidate([&pc1](Candidate candidate) {
-		// Filter server reflexive candidates
-		if (candidate.type() != rtc::Candidate::Type::ServerReflexive)
-			return;
-
+		// A loopback host candidate is sufficient for the other peer.
 		cout << "Candidate 2: " << candidate << endl;
 		pc1.addRemoteCandidate(string(candidate));
 	});
@@ -251,5 +249,189 @@ TestResult test_turn_connectivity() {
 	pc2.close();
 	this_thread::sleep_for(1s);
 
+	return TestResult(true);
+}
+
+
+TestResult test_turn_relay_to_relay() {
+	// Both ICE agents must use their own TURN allocations. This exercises
+	// relay-to-relay connectivity rather than a relay-to-host candidate pair.
+	char const *turnUrl = std::getenv("RTC_TEST_TURN_URL");
+	if (!turnUrl)
+		return TestResult(false, "RTC_TEST_TURN_URL is not set");
+
+	Configuration config;
+	config.iceTransportPolicy = TransportPolicy::Relay;
+	config.iceServers.emplace_back(turnUrl);
+	PeerConnection pc1(config);
+	PeerConnection pc2(config);
+
+	std::atomic<bool> gathered1{false}, gathered2{false};
+	std::atomic<bool> leaked1{false}, leaked2{false};
+	std::atomic<bool> received1{false}, received2{false};
+
+	pc1.onLocalCandidate([&](Candidate candidate) {
+		if (candidate.type() != Candidate::Type::Relayed)
+			leaked1 = true;
+	});
+	pc2.onLocalCandidate([&](Candidate candidate) {
+		if (candidate.type() != Candidate::Type::Relayed)
+			leaked2 = true;
+	});
+
+	// Exchange complete descriptions to avoid depending on trickle timing.
+	pc1.onGatheringStateChange([&](PeerConnection::GatheringState state) {
+		if (state == PeerConnection::GatheringState::Complete) {
+			gathered1 = true;
+			if (auto sdp = pc1.localDescription())
+				pc2.setRemoteDescription(string(*sdp));
+		}
+	});
+	pc2.onGatheringStateChange([&](PeerConnection::GatheringState state) {
+		if (state == PeerConnection::GatheringState::Complete) {
+			gathered2 = true;
+			if (auto sdp = pc2.localDescription())
+				pc1.setRemoteDescription(string(*sdp));
+		}
+	});
+
+	std::shared_ptr<DataChannel> remoteChannel;
+	pc2.onDataChannel([&](std::shared_ptr<DataChannel> dc) {
+		dc->onMessage([&, wdc = make_weak_ptr(dc)](const variant<binary, string> &msg) {
+			if (holds_alternative<string>(msg) && get<string>(msg) == "relay ping") {
+				received2 = true;
+				if (auto channel = wdc.lock())
+					channel->send("relay pong");
+			}
+		});
+		std::atomic_store(&remoteChannel, dc);
+	});
+
+	auto dc1 = pc1.createDataChannel("relay-to-relay");
+	dc1->onOpen([wdc1 = make_weak_ptr(dc1)] {
+		if (auto channel = wdc1.lock())
+			channel->send("relay ping");
+	});
+	dc1->onMessage([&](const variant<binary, string> &msg) {
+		if (holds_alternative<string>(msg) && get<string>(msg) == "relay pong")
+			received1 = true;
+	});
+
+	for (int i = 0; i < 200 && !(received1 && received2); ++i)
+		this_thread::sleep_for(chrono::milliseconds(100));
+
+	auto sdp1 = pc1.localDescription();
+	auto sdp2 = pc2.localDescription();
+	auto relayedOnly = [](const optional<Description> &sdp) {
+		if (!sdp || sdp->candidates().empty())
+			return false;
+		for (auto const &candidate : sdp->candidates()) {
+			if (candidate.type() != Candidate::Type::Relayed)
+				return false;
+		}
+		return true;
+	};
+
+	Candidate local1, remote1, local2, remote2;
+	bool const pair1 = pc1.getSelectedCandidatePair(&local1, &remote1);
+	bool const pair2 = pc2.getSelectedCandidatePair(&local2, &remote2);
+	bool const valid = gathered1 && gathered2 && !leaked1 && !leaked2 &&
+	                   relayedOnly(sdp1) && relayedOnly(sdp2) &&
+	                   pair1 && pair2 &&
+	                   local1.type() == Candidate::Type::Relayed &&
+	                   local2.type() == Candidate::Type::Relayed &&
+	                   received1 && received2;
+
+	pc1.resetCallbacks();
+	pc2.resetCallbacks();
+	pc1.close();
+	pc2.close();
+
+	if (!valid)
+		return TestResult(false, "Relay-to-relay ICE, candidates or bidirectional data failed");
+	return TestResult(true);
+}
+
+TestResult test_turn_invalid_credentials() {
+	// An unreachable allocation must not trigger direct host ICE fallback.
+	char const *turnUrl = std::getenv("RTC_TEST_TURN_URL");
+	if (!turnUrl)
+		return TestResult(false, "RTC_TEST_TURN_URL is not set");
+
+	IceServer badServer(turnUrl);
+	badServer.password = "invalid-turn-password";
+
+	Configuration relayConfig;
+	relayConfig.iceTransportPolicy = TransportPolicy::Relay;
+	relayConfig.iceServers.push_back(std::move(badServer));
+
+	PeerConnection relay(relayConfig);
+	PeerConnection direct(Configuration{});
+
+	std::atomic<bool> relayGathered{false}, directGathered{false};
+	std::atomic<bool> leakedCandidate{false}, connected{false};
+
+	relay.onLocalCandidate([&](Candidate) { leakedCandidate = true; });
+	relay.onGatheringStateChange([&](PeerConnection::GatheringState state) {
+		if (state == PeerConnection::GatheringState::Complete) {
+			relayGathered = true;
+			if (auto sdp = relay.localDescription())
+				direct.setRemoteDescription(string(*sdp));
+		}
+	});
+	direct.onGatheringStateChange([&](PeerConnection::GatheringState state) {
+		if (state == PeerConnection::GatheringState::Complete)
+			directGathered = true;
+	});
+	direct.onLocalCandidate([&](Candidate candidate) {
+		relay.addRemoteCandidate(std::move(candidate));
+	});
+	direct.onLocalDescription([&](Description sdp) {
+		relay.setRemoteDescription(std::move(sdp));
+	});
+
+	auto onIceState = [&](PeerConnection::IceState state) {
+		if (state == PeerConnection::IceState::Connected ||
+		    state == PeerConnection::IceState::Completed)
+			connected = true;
+	};
+	relay.onIceStateChange(onIceState);
+	direct.onIceStateChange(onIceState);
+
+	auto dc = relay.createDataChannel("invalid-turn-credentials");
+	dc->onOpen([&] { connected = true; });
+
+	// Invalid TURN credentials can take several allocation retries. Wait for
+	// ICE gathering on both peers, then allow time for direct ICE fallback.
+	bool gatheringComplete = false;
+	for (int i = 0; i < 450; ++i) {
+		if (relayGathered && directGathered) {
+			gatheringComplete = true;
+			break;
+		}
+		this_thread::sleep_for(chrono::milliseconds(100));
+	}
+	if (gatheringComplete)
+		this_thread::sleep_for(chrono::seconds(2));
+
+	Candidate local, remote;
+	bool const pair = relay.getSelectedCandidatePair(&local, &remote);
+	auto const sdp = relay.localDescription();
+	bool const advertised = sdp && !sdp->candidates().empty();
+	bool const established = connected ||
+	    relay.iceState() == PeerConnection::IceState::Connected ||
+	    relay.iceState() == PeerConnection::IceState::Completed ||
+	    direct.iceState() == PeerConnection::IceState::Connected ||
+	    direct.iceState() == PeerConnection::IceState::Completed;
+
+	relay.resetCallbacks();
+	direct.resetCallbacks();
+	relay.close();
+	direct.close();
+
+	if (!gatheringComplete)
+		return TestResult(false, "ICE gathering did not complete with invalid TURN credentials");
+	if (leakedCandidate || advertised || pair || established)
+		return TestResult(false, "Relay-only ICE exposed or selected a direct candidate");
 	return TestResult(true);
 }
