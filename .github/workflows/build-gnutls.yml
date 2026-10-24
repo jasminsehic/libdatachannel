@@ -27,6 +27,9 @@ jobs:
     - name: test
       run: ./build/tests
 
+    - name: integration test
+      run: bash test/run_turn_test.sh
+
   build-macos:
     runs-on: macos-latest
     steps:

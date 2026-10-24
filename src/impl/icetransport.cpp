@@ -85,6 +85,7 @@ IceTransport::IceTransport(const Configuration &config, candidate_callback candi
 	juice_set_log_level(level);
 
 	juice_config_t jconfig = {};
+	jconfig.relay_only = config.iceTransportPolicy == TransportPolicy::Relay;
 	jconfig.cb_state_changed = IceTransport::StateChangeCallback;
 	jconfig.cb_candidate = IceTransport::CandidateCallback;
 	jconfig.cb_gathering_done = IceTransport::GatheringDoneCallback;
@@ -474,6 +475,8 @@ IceTransport::IceTransport(const Configuration &config, candidate_callback candi
 	g_object_set(G_OBJECT(mNiceAgent.get()), "ice-udp", TRUE, nullptr);
 	g_object_set(G_OBJECT(mNiceAgent.get()), "ice-tcp", config.enableIceTcp ? TRUE : FALSE,
 	             nullptr);
+	g_object_set(G_OBJECT(mNiceAgent.get()), "force-relay",
+	             config.iceTransportPolicy == TransportPolicy::Relay ? TRUE : FALSE, nullptr);
 
 	// RFC 8445: Agents MUST NOT use an RTO value smaller than 500 ms.
 	g_object_set(G_OBJECT(mNiceAgent.get()), "stun-initial-timeout", 500, nullptr);
