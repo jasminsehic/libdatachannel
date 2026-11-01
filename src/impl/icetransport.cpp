@@ -260,8 +260,8 @@ optional<string> IceTransport::getLocalAddress() const {
 }
 optional<string> IceTransport::getRemoteAddress() const {
 	char str[JUICE_MAX_ADDRESS_STRING_LEN];
-	if (juice_get_selected_addresses(mAgent.get(), nullptr, 0, str, JUICE_MAX_ADDRESS_STRING_LEN) ==
-	    0) {
+	if (juice_get_selected_remote_transport_address(mAgent.get(), str,
+	                                                JUICE_MAX_ADDRESS_STRING_LEN) == 0) {
 		return std::make_optional(string(str));
 	}
 	return nullopt;
