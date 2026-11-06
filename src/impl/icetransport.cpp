@@ -131,6 +131,14 @@ IceTransport::IceTransport(const Configuration &config, candidate_callback candi
 	if (!mAgent)
 		throw std::runtime_error("Failed to create the ICE agent");
 
+	// Configure relay-only before gathering: the policy is an agent setter,
+	// not part of juice_config_t.
+	if (juice_set_ice_transport_policy(
+	        mAgent.get(), config.iceTransportPolicy == TransportPolicy::Relay
+	                          ? JUICE_ICE_TRANSPORT_POLICY_RELAY
+	                          : JUICE_ICE_TRANSPORT_POLICY_ALL) != JUICE_ERR_SUCCESS)
+		throw std::runtime_error("Failed to set ICE transport policy");
+
 	// ICE-TCP
 	juice_set_ice_tcp_mode(mAgent.get(), config.enableIceTcp ? JUICE_ICE_TCP_MODE_ACTIVE
 	                                                         : JUICE_ICE_TCP_MODE_NONE);
@@ -474,6 +482,8 @@ IceTransport::IceTransport(const Configuration &config, candidate_callback candi
 	g_object_set(G_OBJECT(mNiceAgent.get()), "ice-udp", TRUE, nullptr);
 	g_object_set(G_OBJECT(mNiceAgent.get()), "ice-tcp", config.enableIceTcp ? TRUE : FALSE,
 	             nullptr);
+	g_object_set(G_OBJECT(mNiceAgent.get()), "force-relay",
+	             config.iceTransportPolicy == TransportPolicy::Relay ? TRUE : FALSE, nullptr);
 
 	// RFC 8445: Agents MUST NOT use an RTO value smaller than 500 ms.
 	g_object_set(G_OBJECT(mNiceAgent.get()), "stun-initial-timeout", 500, nullptr);

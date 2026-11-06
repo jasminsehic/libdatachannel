@@ -22,6 +22,7 @@ using chrono::seconds;
 using chrono::steady_clock;
 
 TestResult test_connectivity();
+TestResult test_relay_only_without_turn();
 TestResult test_connectivity_fail_on_wrong_fingerprint();
 TestResult test_dtls_startup_after_remote_description();
 TestResult test_pem();
@@ -30,6 +31,8 @@ TestResult test_reliability();
 TestResult test_simulcast_sdp_generation();
 TestResult test_simulcast_sdp_parsing();
 TestResult test_turn_connectivity();
+TestResult test_turn_relay_to_relay();
+TestResult test_turn_invalid_credentials();
 TestResult test_track();
 TestResult test_video_layers_allocation();
 TestResult test_fir_sdp();
@@ -87,10 +90,9 @@ static const vector<Test> tests = {
     // C++ API tests
     Test("DTLS startup after remote description", test_dtls_startup_after_remote_description),
     Test("WebRTC connectivity", test_connectivity),
+    Test("Relay-only ICE without TURN", test_relay_only_without_turn),
     Test("WebRTC broken fingerprint", test_connectivity_fail_on_wrong_fingerprint),
     Test("pem", test_pem),
-    // TODO: Temporarily disabled as the Open Relay TURN server is unreliable
-    // Test("WebRTC TURN connectivity", test_turn_connectivity),
     Test("WebRTC negotiated DataChannel", test_negotiated),
     Test("WebRTC reliability mode", test_reliability),
     Test("WebRTC simulcast SDP generation", test_simulcast_sdp_generation),
@@ -132,6 +134,20 @@ static const vector<Test> tests = {
 int main(int argc, char **argv) {
 	rtc::SetThreadPoolSize(4);
 
+	// The local Violet TURN fixture runs only in dedicated Linux CI integration steps.
+	// Keep the TURN integration test out of the normal cross-platform suite.
+	if (argc == 2 && std::string(argv[1]) == "--turn") {
+		bool success = true;
+		for (auto test : vector<Test>{
+		         Test("WebRTC TURN connectivity", test_turn_connectivity),
+		         Test("WebRTC relay-to-relay connectivity", test_turn_relay_to_relay),
+		         Test("WebRTC invalid TURN credentials", test_turn_invalid_credentials)}) {
+			if (!test.run().success)
+				success = false;
+		}
+		return success ? 0 : 1;
+	}
+
 	int success_tests = 0;
 	int failed_tests = 0;
 	steady_clock::time_point startTime, endTime;
@@ -167,5 +183,5 @@ int main(int argc, char **argv) {
 	        return -1;
 	    }
 	*/
-	return 0;
+	return failed_tests == 0 ? 0 : 1;
 }
