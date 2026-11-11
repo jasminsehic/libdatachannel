@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <locale>
 #include <sstream>
 #include <unordered_map>
 
@@ -205,6 +206,7 @@ uint32_t Candidate::priority() const { return mPriority; }
 string Candidate::candidate() const {
 	const char sp{' '};
 	std::ostringstream oss;
+	oss.imbue(std::locale::classic());
 	oss << "candidate:";
 	oss << mFoundation << sp << mComponent << sp << mTransportString << sp << mPriority << sp;
 	if (isResolved())
@@ -224,6 +226,7 @@ string Candidate::mid() const { return mMid.value_or("0"); }
 
 Candidate::operator string() const {
 	std::ostringstream line;
+	line.imbue(std::locale::classic());
 	line << "a=" << candidate();
 	return line.str();
 }
