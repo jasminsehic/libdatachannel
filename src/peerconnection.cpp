@@ -47,6 +47,11 @@ PeerConnection::~PeerConnection() {
 
 void PeerConnection::close() { impl()->close(); }
 
+void PeerConnection::stopIceDatagrams() {
+	if (auto ice = impl()->getIceTransport())
+		ice->stopDatagrams();
+}
+
 const Configuration *PeerConnection::config() const { return &impl()->config; }
 
 PeerConnection::State PeerConnection::state() const { return impl()->state; }

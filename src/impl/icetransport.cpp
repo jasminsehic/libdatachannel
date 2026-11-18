@@ -34,6 +34,12 @@ using std::chrono::system_clock;
 
 namespace rtc::impl {
 
+void IceTransport::stopDatagrams() {
+#if !USE_NICE
+	juice_stop_datagrams(mAgent.get());
+#endif
+}
+
 #if !USE_NICE // libjuice
 
 const int MAX_TURN_SERVERS_COUNT = 2;

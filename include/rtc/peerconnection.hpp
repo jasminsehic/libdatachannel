@@ -80,6 +80,7 @@ public:
 	~PeerConnection();
 
 	void close();
+	void stopIceDatagrams();
 
 	const Configuration *config() const;
 	State state() const;

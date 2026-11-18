@@ -44,6 +44,7 @@ public:
 	             state_callback stateChangeCallback,
 	             gathering_state_callback gatheringStateChangeCallback);
 	~IceTransport();
+	void stopDatagrams();
 
 	Description::Role role() const;
 	GatheringState gatheringState() const;
