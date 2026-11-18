@@ -130,9 +130,28 @@ IceTransport::IceTransport(const Configuration &config, candidate_callback candi
 	if (!mAgent)
 		throw std::runtime_error("Failed to create the ICE agent");
 
+	if (config.proxyServer) {
+		const auto &proxy = *config.proxyServer;
+		if (proxy.type != ProxyServer::Type::Socks5 || config.enableIceTcp ||
+		    config.enableIceUdpMux)
+			throw std::invalid_argument("Unsupported SOCKS5 ICE transport configuration");
+
+		juice_socks5_proxy_t server = {};
+		server.host = proxy.hostname.c_str();
+		server.port = proxy.port;
+		server.username = proxy.username ? proxy.username->c_str() : nullptr;
+		server.password = proxy.password ? proxy.password->c_str() : nullptr;
+		server.numeric_only = config.proxyNumericOnly;
+		if (juice_set_socks5_proxy(mAgent.get(), &server) != JUICE_ERR_SUCCESS)
+			throw std::runtime_error("Failed to configure SOCKS5 ICE proxy");
+		PLOG_INFO << "RTC_PROXY_TRACE ICE configured transport=socks5 numeric_only="
+		          << config.proxyNumericOnly;
+	}
+
 	// ICE-TCP
-	juice_set_ice_tcp_mode(mAgent.get(), config.enableIceTcp ? JUICE_ICE_TCP_MODE_ACTIVE
-	                                                         : JUICE_ICE_TCP_MODE_NONE);
+	if (juice_set_ice_tcp_mode(mAgent.get(), config.enableIceTcp ? JUICE_ICE_TCP_MODE_ACTIVE
+	                                                            : JUICE_ICE_TCP_MODE_NONE))
+		throw std::runtime_error("Failed to configure ICE-TCP");
 
 	// Add TURN servers
 	for (const auto &server : servers)

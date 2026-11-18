@@ -66,7 +66,8 @@ enum class TransportPolicy { All = RTC_TRANSPORT_POLICY_ALL, Relay = RTC_TRANSPO
 struct RTC_CPP_EXPORT Configuration {
 	// ICE settings
 	std::vector<IceServer> iceServers;
-	optional<ProxyServer> proxyServer; // libnice only
+	optional<ProxyServer> proxyServer;
+	bool proxyNumericOnly = false; // libjuice: disable local hostname lookups
 	optional<string> bindAddress;      // libjuice only, default any
 
 	// Options

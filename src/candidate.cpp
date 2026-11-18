@@ -166,7 +166,7 @@ bool Candidate::resolve(ResolveMode mode) {
 	}
 
 	if (mode == ResolveMode::Simple)
-		hints.ai_flags |= AI_NUMERICHOST;
+		hints.ai_flags |= AI_NUMERICHOST | AI_NUMERICSERV;
 
 	struct addrinfo *result = nullptr;
 	if (getaddrinfo(mNode.c_str(), mService.c_str(), &hints, &result) == 0) {

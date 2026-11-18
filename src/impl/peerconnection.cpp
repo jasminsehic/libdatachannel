@@ -1171,6 +1171,10 @@ void PeerConnection::processRemoteCandidate(Candidate candidate) {
 	if (candidate.isResolved()) {
 		iceTransport->addRemoteCandidate(std::move(candidate));
 	} else {
+		if (config.proxyServer && config.proxyNumericOnly) {
+			PLOG_INFO << "RTC_PROXY_TRACE DNS blocked: unresolved remote ICE candidate";
+			return;
+		}
 		// We might need a lookup, do it asynchronously
 		// We don't use the thread pool because we have no control on the timeout
 		if ((iceTransport = std::atomic_load(&mIceTransport))) {
