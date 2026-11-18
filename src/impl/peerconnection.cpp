@@ -1171,7 +1171,7 @@ void PeerConnection::processRemoteCandidate(Candidate candidate) {
 	if (candidate.isResolved()) {
 		iceTransport->addRemoteCandidate(std::move(candidate));
 	} else {
-		if (config.proxyServer && config.proxyNumericOnly) {
+		if (config.proxyServer && config.proxyHostnames) {
 			PLOG_INFO << "RTC_PROXY_TRACE DNS blocked: unresolved remote ICE candidate";
 			return;
 		}

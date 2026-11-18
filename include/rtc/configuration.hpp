@@ -67,7 +67,7 @@ struct RTC_CPP_EXPORT Configuration {
 	// ICE settings
 	std::vector<IceServer> iceServers;
 	optional<ProxyServer> proxyServer;
-	bool proxyNumericOnly = false; // libjuice: disable local hostname lookups
+	bool proxyHostnames = false; // libjuice: resolve ICE server hostnames through the proxy
 	optional<string> bindAddress;      // libjuice only, default any
 
 	// Options

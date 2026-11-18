@@ -147,11 +147,11 @@ IceTransport::IceTransport(const Configuration &config, candidate_callback candi
 		server.port = proxy.port;
 		server.username = proxy.username ? proxy.username->c_str() : nullptr;
 		server.password = proxy.password ? proxy.password->c_str() : nullptr;
-		server.numeric_only = config.proxyNumericOnly;
+		server.proxy_hostnames = config.proxyHostnames;
 		if (juice_set_socks5_proxy(mAgent.get(), &server) != JUICE_ERR_SUCCESS)
 			throw std::runtime_error("Failed to configure SOCKS5 ICE proxy");
-		PLOG_INFO << "RTC_PROXY_TRACE ICE configured transport=socks5 numeric_only="
-		          << config.proxyNumericOnly;
+		PLOG_INFO << "RTC_PROXY_TRACE ICE configured transport=socks5 proxy_hostnames="
+		          << config.proxyHostnames;
 	}
 
 	// ICE-TCP
