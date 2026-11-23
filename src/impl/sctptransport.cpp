@@ -726,7 +726,13 @@ void SctpTransport::sendReset(uint16_t streamId) {
 	if (state() != State::Connected)
 		return;
 
-	PLOG_DEBUG << "SCTP resetting stream " << streamId;
+	struct sctp_status status = {};
+	socklen_t statusLength = sizeof(status);
+	const bool haveStatus =
+	    usrsctp_getsockopt(mSock, IPPROTO_SCTP, SCTP_STATUS, &status, &statusLength) == 0;
+	PLOG_DEBUG << "SCTP reset requested, stream=" << streamId
+	           << ", association-state=" << (haveStatus ? std::to_string(status.sstat_state) : "unknown")
+	           << ", association-id=" << (haveStatus ? std::to_string(status.sstat_assoc_id) : "unknown");
 
 	using srs_t = struct sctp_reset_streams;
 	const size_t len = sizeof(srs_t) + sizeof(uint16_t);
@@ -737,10 +743,16 @@ void SctpTransport::sendReset(uint16_t streamId) {
 	srs.srs_stream_list[0] = streamId;
 
 	if (usrsctp_setsockopt(mSock, IPPROTO_SCTP, SCTP_RESET_STREAMS, &srs, len)) {
-		if (errno == EINVAL) {
+		const int error = errno;
+		if (error == EINVAL) {
 			PLOG_DEBUG << "SCTP stream " << streamId << " already reset";
 		} else {
-			PLOG_WARNING << "SCTP reset stream " << streamId << " failed, errno=" << errno;
+			PLOG_WARNING << "SCTP reset stream " << streamId
+			             << " failed, errno=" << error
+			             << ", association-state="
+			             << (haveStatus ? std::to_string(status.sstat_state) : "unknown")
+			             << ", association-id="
+			             << (haveStatus ? std::to_string(status.sstat_assoc_id) : "unknown");
 		}
 	}
 }
@@ -899,6 +911,15 @@ void SctpTransport::processNotification(const union sctp_notification *notify, s
 		const struct sctp_stream_reset_event &reset_event = notify->sn_strreset_event;
 		const int count = (reset_event.strreset_length - sizeof(reset_event)) / sizeof(uint16_t);
 		const uint16_t flags = reset_event.strreset_flags;
+
+		{
+			std::ostringstream desc;
+			desc << "SCTP stream reset notification, flags=" << flags << ", streams=[";
+			for (int i = 0; i < count; ++i)
+				desc << (i != 0 ? "," : "") << reset_event.strreset_stream_list[i];
+			desc << "]";
+			PLOG_DEBUG << desc.str();
+		}
 
 		IF_PLOG(plog::verbose) {
 			std::ostringstream desc;
