@@ -67,6 +67,8 @@ protected:
 	std::atomic<bool> mIsClosed = false;
 
 private:
+	void close(bool remote);
+
 	Queue<message_ptr> mRecvQueue;
 };
 
