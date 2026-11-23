@@ -40,14 +40,19 @@ Transport::State Transport::state() const { return mState; }
 
 void Transport::onRecv(message_callback callback) {
 	std::vector<message_ptr> pending;
+	bool callbackRegistered = false;
 	{
 		std::lock_guard lock(mPendingMutex);
 		mRecvCallback = std::move(callback);
-		if (mRecvCallback)
+		callbackRegistered = bool(mRecvCallback);
+		if (callbackRegistered)
 			pending = std::move(mPendingRecv);
 		else
 			mPendingRecv.clear();
 	}
+	PLOG_DEBUG << "Transport receive callback "
+	           << (callbackRegistered ? "registered" : "unregistered")
+	           << ", pending messages replayed=" << pending.size();
 	for (auto &msg : pending) {
 		try {
 			mRecvCallback(std::move(msg));
@@ -73,10 +78,16 @@ void Transport::recv(message_ptr message) {
 		if (!mRecvCallback) {
 			// No callback registered yet; buffer the message for replay when
 			// onRecv() is called.  Bounded to avoid unbounded growth.
-			if (mPendingRecv.size() < 8)
+			if (mPendingRecv.size() < 8) {
 				mPendingRecv.push_back(std::move(message));
-			else
-				PLOG_WARNING << "dropping incoming message, no receive callback";
+				PLOG_VERBOSE << "Buffered incoming transport message, size="
+				             << (mPendingRecv.back() ? mPendingRecv.back()->size() : 0)
+				             << ", pending=" << mPendingRecv.size() << "/8";
+			} else {
+				PLOG_WARNING << "Dropping incoming transport message, size="
+				             << (message ? message->size() : 0)
+				             << ", pending=" << mPendingRecv.size() << "/8, no receive callback";
+			}
 			return;
 		}
 		lock.unlock();
