@@ -80,7 +80,7 @@ void Transport::recv(message_ptr message) {
 			// onRecv() is called.  Bounded to avoid unbounded growth.
 			if (mPendingRecv.size() < 8) {
 				mPendingRecv.push_back(std::move(message));
-				PLOG_VERBOSE << "Buffered incoming transport message, size="
+				PLOG_DEBUG << "Buffered incoming transport message, size="
 				             << (mPendingRecv.back() ? mPendingRecv.back()->size() : 0)
 				             << ", pending=" << mPendingRecv.size() << "/8";
 			} else {
