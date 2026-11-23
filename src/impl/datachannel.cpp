@@ -94,25 +94,30 @@ DataChannel::~DataChannel() {
 	}
 }
 
-void DataChannel::close() {
-	PLOG_VERBOSE << "Closing DataChannel";
+void DataChannel::close() { close(false); }
 
+void DataChannel::remoteClose() { close(true); }
+
+void DataChannel::close(bool remote) {
 	shared_ptr<SctpTransport> transport;
+	optional<uint16_t> stream;
 	{
 		std::shared_lock lock(mMutex);
 		transport = mSctpTransport.lock();
+		stream = mStream;
 	}
 
 	if (!mIsClosed.exchange(true)) {
-		if (transport && mStream.has_value())
-			transport->closeStream(mStream.value());
+		PLOG_DEBUG << "Closing DataChannel origin=" << (remote ? "remote" : "local")
+		           << ", stream=" << (stream ? std::to_string(*stream) : "unassigned")
+		           << ", was-open=" << bool(mIsOpen);
+		if (transport && stream)
+			transport->closeStream(*stream);
 
 		triggerClosed();
 		resetCallbacks();
-	}	
+	}
 }
-
-void DataChannel::remoteClose() { close(); }
 
 optional<message_variant> DataChannel::receive() {
 	auto next = mRecvQueue.pop();
